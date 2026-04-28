@@ -274,7 +274,7 @@ function buildHtml(ads) {
       node.querySelector('.ai-avatar').textContent = ad.ai?.avatar || '—';
       node.querySelector('.ai-bigidea').textContent = ad.ai?.bigIdea || ad.ai?.angle || '—';
       node.querySelector('.ai-insight').textContent = ad.ai?.insight || '';
-      node.querySelector('.ai-source').textContent = ad.ai?.source === 'claude' ? 'Claude' : 'heurística';
+      node.querySelector('.ai-source').textContent = ad.ai?.source === 'gemini' ? 'Gemini' : 'heurística';
 
       const cta = node.querySelector('.cta-badge');
       cta.textContent = ad.cta || (ad.ai?.swipeReady ? '⭐ swipe-ready' : 'CTA n/a');

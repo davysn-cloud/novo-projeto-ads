@@ -15,7 +15,7 @@ Pré-calibrado para o nicho:
 
 - **Apify** — actor `curious_coder/facebook-ads-library-scraper` (paginação + extração de criativos).
 - **Node.js 18+** (ESM).
-- **Anthropic Claude API** (opcional) — análise de copy / ângulo / funil / avatar / fit.
+- **Google Gemini API** (opcional) — análise de copy / ângulo / funil / avatar / fit via `gemini-2.5-flash` com `responseSchema` (JSON nativo, sem parse frágil).
   - Sem a chave, o analyzer cai num **fallback heurístico PT-BR** que entrega resultado decente.
 - **Tailwind via CDN** — dashboard `report.html` autossuficiente (abre no navegador, sem servidor).
 
@@ -47,7 +47,8 @@ Abra `report.html` no navegador.
 | Var | Default | Descrição |
 |---|---|---|
 | `APIFY_TOKEN` | — (obrig.) | Token da sua conta Apify |
-| `ANTHROPIC_API_KEY` | — (opcional) | Ativa análise via Claude (`claude-sonnet-4-6`) |
+| `GEMINI_API_KEY` | — (opcional) | Ativa análise via Gemini. Pegue em https://aistudio.google.com/apikey |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Modelo do Gemini (`gemini-2.5-flash` ou `gemini-2.5-pro`) |
 | `ADS_COUNT` | `100` | Total de anúncios a coletar |
 | `TOP_N` | `30` | Top-N validados (mais antigos ainda ativos) que entram no relatório |
 
@@ -57,7 +58,7 @@ Abra `report.html` no navegador.
 2. **Analyze** — `src/analyzer.js`:
    - Normaliza campos (datas, mídias, copy) — defensivo a variações do schema do actor.
    - Filtra apenas anúncios **ativos** e pega os `TOP_N` com maior `daysRunning` (= validados).
-   - Para cada um, chama Claude (ou heurística) para devolver: `fit (0-100)`, `angle`, `bigIdea`, `funnel`, `avatar`, `hookVisual`, `insight`, `swipeReady`.
+   - Para cada um, chama Gemini (ou heurística) para devolver: `fit (0-100)`, `angle`, `bigIdea`, `funnel`, `avatar`, `hookVisual`, `insight`, `swipeReady`.
    - Salva em `data/analyzed_ads.json`.
 3. **Report** — `src/reporter.js` gera `report.html`:
    - Dark mode SaaS premium (Tailwind, Inter + JetBrains Mono).
@@ -82,7 +83,7 @@ Abra `report.html` no navegador.
 ## Custos aproximados
 
 - Apify: actor cobra ~US$ 0.75 por 1000 resultados ou plano flat US$ 30/mês.
-- Anthropic: ~30 chamadas com Sonnet 4.6 por execução. Centavos de dólar.
+- Gemini: `gemini-2.5-flash` tem **tier gratuito** generoso no Google AI Studio. ~30 chamadas curtas por execução cabem fácil no free tier.
 
 ## Notas legais
 

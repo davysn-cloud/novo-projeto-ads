@@ -5,7 +5,7 @@
 import 'dotenv/config';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { NICHE } from './config.js';
 
 const RAW_PATH = path.resolve('data/raw_ads.json');
@@ -170,32 +170,37 @@ function buildHeuristicInsight({ ad, angle, funnel, avatar, fit }) {
   return `Anúncio ${longevity} (${ad.daysRunning} dias rodando). Ângulo principal: **${angle}**. Funil: **${funnel}**. Avatar capturado: **${avatar}**. Fit ${fit}/100 com sua oferta de Landing Pages — observe a estrutura da copy e o gancho de abertura para adaptar ao seu diferencial de velocidade (48-72h).`;
 }
 
-// ---------- Análise via Claude (preferida quando disponível) ----------
+// ---------- Análise via Gemini (preferida quando disponível) ----------
 
-async function claudeAnalyze(ad, client) {
-  const sys = `Você é um estrategista de copy e tráfego pago especialista no mercado brasileiro de infoprodutos e serviços.
-Sua tarefa é analisar UM anúncio do Facebook e responder SOMENTE em JSON válido (sem markdown, sem comentários).
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-CONTEXTO DO PRODUTO DO USUÁRIO QUE ESTÁ ANALISANDO:
+const RESPONSE_SCHEMA = {
+  type: 'object',
+  properties: {
+    fit: { type: 'integer', description: '0-100, quanto o anúncio é referência útil para a oferta do usuário' },
+    angle: { type: 'string', description: "Ex: 'Autoridade + Prova social', 'Urgência + Escassez'" },
+    bigIdea: { type: 'string', description: '1 frase com a Big Idea / promessa central' },
+    funnel: { type: 'string', description: "Ex: 'WhatsApp direto', 'VSL', 'Lead Magnet', 'Quiz', 'Aplicação'" },
+    avatar: { type: 'string', description: 'A quem este anúncio fala (dor + identidade)' },
+    hookVisual: { type: 'string', description: 'Hook visual implícito pela copy/CTA' },
+    insight: { type: 'string', description: '2-3 frases: POR QUE funciona e COMO o usuário pode adaptar' },
+    swipeReady: { type: 'boolean', description: 'true se a estrutura de copy é digna de swipe file' },
+  },
+  required: ['fit', 'angle', 'bigIdea', 'funnel', 'avatar', 'insight', 'swipeReady'],
+};
+
+function buildGeminiPrompt(ad) {
+  return `Você é um estrategista de copy e tráfego pago especialista no mercado brasileiro de infoprodutos e serviços.
+Analise UM anúncio do Facebook em relação à oferta do usuário e devolva JSON conforme o schema.
+
+CONTEXTO DA OFERTA DO USUÁRIO:
 - Oferta: ${NICHE.productName}
 - Ticket: ${NICHE.ticket}
 - Mercado: ${NICHE.market} (${NICHE.language})
 - Diferencial: ${NICHE.uniqueSelling}
 - Avatar do usuário: ${NICHE.avatar.join('; ')}
 
-FORMATO DE RESPOSTA (JSON):
-{
-  "fit": <int 0-100, quanto este anúncio é referência útil para a oferta acima>,
-  "angle": "<nome curto do ângulo de copy. Ex: 'Autoridade + Prova social', 'Urgência + Escassez', 'Transformação 90 dias'>",
-  "bigIdea": "<1 frase com a Big Idea / promessa central>",
-  "funnel": "<tipo de funil. Ex: 'WhatsApp direto', 'VSL', 'Lead Magnet', 'Quiz', 'Aplicação'>",
-  "avatar": "<a quem este anúncio fala (dor + identidade)>",
-  "hookVisual": "<descrição curta do hook visual implícito pela copy/CTA>",
-  "insight": "<2-3 frases explicando POR QUE funciona e COMO o usuário pode adaptar para a oferta dele de Landing Pages>",
-  "swipeReady": <boolean, true se a estrutura de copy é digna de swipe file>
-}`;
-
-  const user = `ANÚNCIO PARA ANALISAR:
+ANÚNCIO PARA ANALISAR:
 Página: ${ad.pageName}
 Dias rodando: ${ad.daysRunning}
 Título: ${ad.title || '(sem título)'}
@@ -206,17 +211,21 @@ ${ad.body || '(sem copy)'}
 """
 Descrição do link: ${ad.linkDescription || '(vazia)'}
 URL destino: ${ad.linkUrl || '(n/a)'}`;
+}
 
-  const resp = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 800,
-    system: sys,
-    messages: [{ role: 'user', content: user }],
+async function geminiAnalyze(ad, model) {
+  const result = await model.generateContent({
+    contents: [{ role: 'user', parts: [{ text: buildGeminiPrompt(ad) }] }],
+    generationConfig: {
+      temperature: 0.4,
+      maxOutputTokens: 800,
+      responseMimeType: 'application/json',
+      responseSchema: RESPONSE_SCHEMA,
+    },
   });
-
-  const text = resp.content?.[0]?.text || '';
+  const text = result.response.text();
   const json = extractJson(text);
-  return { ...json, source: 'claude' };
+  return { ...json, source: 'gemini' };
 }
 
 function extractJson(text) {
@@ -242,16 +251,18 @@ export async function analyze({ topN = 30 } = {}) {
 
   console.log(`[analyzer] TOP ${validated.length} anúncios validados (mais antigos ainda ativos)`);
 
-  const useClaude = !!process.env.ANTHROPIC_API_KEY;
-  const client = useClaude ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
-  console.log(`[analyzer] Modo: ${useClaude ? 'Claude API (claude-sonnet-4-6)' : 'Heurística PT-BR (sem ANTHROPIC_API_KEY)'}`);
+  const useGemini = !!process.env.GEMINI_API_KEY;
+  const model = useGemini
+    ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY).getGenerativeModel({ model: GEMINI_MODEL })
+    : null;
+  console.log(`[analyzer] Modo: ${useGemini ? `Gemini API (${GEMINI_MODEL})` : 'Heurística PT-BR (sem GEMINI_API_KEY)'}`);
 
   const results = [];
   for (let i = 0; i < validated.length; i++) {
     const ad = validated[i];
     process.stdout.write(`[analyzer] (${i + 1}/${validated.length}) ${ad.pageName.slice(0, 30)}... `);
     try {
-      const ai = useClaude ? await claudeAnalyze(ad, client) : heuristicAnalyze(ad);
+      const ai = useGemini ? await geminiAnalyze(ad, model) : heuristicAnalyze(ad);
       results.push({ ...ad, ai });
       console.log(`fit=${ai.fit}`);
     } catch (err) {
