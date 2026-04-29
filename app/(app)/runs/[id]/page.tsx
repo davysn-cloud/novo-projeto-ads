@@ -7,6 +7,7 @@ import type { Run } from "@prisma/client"
 import type { AnalyzedAd } from "@/lib/analyzer"
 import { AdGrid } from "@/components/AdGrid"
 import { KpiCards } from "@/components/KpiCards"
+import { RunPoller } from "@/components/RunPoller"
 
 type Props = { params: Promise<{ id: string }> }
 
@@ -48,8 +49,8 @@ export default async function RunPage({ params }: Props) {
 
   return (
     <div className="max-w-7xl mx-auto">
-      {/* Auto-refresh leve enquanto processa (Fase 6 troca por polling client-side de verdade) */}
-      {isProcessing && <meta httpEquiv="refresh" content="5" />}
+      {/* Client-side polling — faz router.refresh() a cada 3s enquanto processa */}
+      <RunPoller runId={run.id} initialStatus={run.status} />
 
       {/* Header */}
       <div className="mb-8">
@@ -90,7 +91,7 @@ export default async function RunPage({ params }: Props) {
               Processando sua Spy Run…
             </p>
             <p className="text-xs text-zinc-500 ml-auto">
-              Atualiza a cada 5s
+              Atualiza a cada 3s
             </p>
           </div>
           <div className="flex items-center gap-2">
