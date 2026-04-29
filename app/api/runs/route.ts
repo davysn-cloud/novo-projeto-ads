@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth"
 import { db } from "@/lib/db"
 import { z } from "zod"
 import { inngest } from "@/inngest/client"
-import { checkQuota, consumeQuota } from "@/lib/quota"
+import { checkQuota, consumeQuota, QuotaExceededError } from "@/lib/quota"
 
 const CreateRunSchema = z.object({
   productName: z.string().min(3).max(120),
@@ -15,6 +15,8 @@ const CreateRunSchema = z.object({
   focusAreas: z.array(z.string()).default([]),
   adsCount: z.number().int().min(10).max(200).default(100),
   topN: z.number().int().min(5).max(50).default(30),
+  // Keywords podem vir do preview do form (Fase 4) ou serem geradas pelo worker.
+  keywords: z.array(z.string()).default([]),
 })
 
 // GET /api/runs — lista runs do usuário autenticado
@@ -57,8 +59,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 422 })
   }
 
-  // Verifica quota antes de criar
-  await checkQuota(session.user.id)
+  try {
+    await checkQuota(session.user.id)
+  } catch (err) {
+    if (err instanceof QuotaExceededError) {
+      return NextResponse.json({ error: err.message }, { status: 429 })
+    }
+    throw err
+  }
 
   const run = await db.run.create({
     data: {
@@ -68,7 +76,6 @@ export async function POST(req: Request) {
     },
   })
 
-  // Consome quota e dispara o worker assíncrono
   await consumeQuota(session.user.id)
   await inngest.send({ name: "spy/run.created", data: { runId: run.id } })
 
