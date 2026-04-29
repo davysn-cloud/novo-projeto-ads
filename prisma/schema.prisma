@@ -1,0 +1,114 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Auth.js v5 required models
+// ─────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────
+// Business models
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime?
+  name          String?
+  image         String?
+  // Freemium: FREE tier gets 2 runs/month
+  plan          Plan      @default(FREE)
+  monthlyQuota  Int       @default(2)
+  monthlyUsed   Int       @default(0)
+  quotaResetAt  DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  runs          Run[]
+}
+
+model Run {
+  id     String    @id @default(cuid())
+  userId String
+  user   User      @relation(fields: [userId], references: [id])
+  status RunStatus @default(QUEUED)
+
+  // ── Spec do usuário (snapshot do formulário) ──
+  productName   String
+  ticket        String?
+  market        String   @default("BR")
+  language      String   @default("pt-BR")
+  uniqueSelling String?
+  avatar        String[]
+  focusAreas    String[]
+  adsCount      Int      @default(100) // total a coletar
+  topN          Int      @default(30)  // quantos validados analisar
+
+  // ── Gerado pelo worker ──
+  keywords String[]
+
+  // ── Resultados (JSONB) ──
+  rawAds      Json? // dump bruto Apify
+  analyzedAds Json? // anúncios normalizados + análise IA
+
+  // ── Telemetria ──
+  errorMessage String?   @db.Text
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+enum RunStatus {
+  QUEUED
+  GENERATING_KEYWORDS
+  SCRAPING
+  ANALYZING
+  DONE
+  FAILED
+}
